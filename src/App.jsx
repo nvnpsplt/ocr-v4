@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { PhotoIcon, ClockIcon, ExclamationCircleIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import { processImageWithRetry } from './services/ollamaService';
+import { convertPDFToImage } from './services/pdfService';
 import ChatInterface from './components/ChatInterface';
 
 function App() {
@@ -12,24 +13,33 @@ function App() {
   const [progress, setProgress] = useState('');
   const [processingSteps, setProcessingSteps] = useState({ current: '', steps: [] });
 
-  const processImage = async (file) => {
+  const processFile = async (file) => {
     setLoading(true);
     setError(null);
     setProcessingSteps({
-      current: 'Preparing image',
-      steps: ['Preparing image', 'Analyzing invoice', 'Extracting data', 'Formatting results']
+      current: 'Preparing file',
+      steps: ['Preparing file', 'Converting file', 'Analyzing invoice', 'Extracting data', 'Formatting results']
     });
 
     try {
+      let imageFile = file;
+      
+      // If file is PDF, convert to image first
+      if (file.type === 'application/pdf') {
+        setProcessingSteps(prev => ({ ...prev, current: 'Converting file' }));
+        imageFile = await convertPDFToImage(file);
+      }
+
+      setProcessingSteps(prev => ({ ...prev, current: 'Analyzing invoice' }));
+      
       // Convert file to base64
       const reader = new FileReader();
       const base64Promise = new Promise((resolve, reject) => {
         reader.onload = () => resolve(reader.result);
         reader.onerror = (error) => reject(error);
       });
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(imageFile);
       
-      setProcessingSteps(prev => ({ ...prev, current: 'Analyzing invoice' }));
       const base64Image = await base64Promise;
       
       setProcessingSteps(prev => ({ ...prev, current: 'Extracting data' }));
@@ -42,7 +52,7 @@ function App() {
         id: Date.now(),
         extractedData: text,
         timestamp: new Date().toLocaleString(),
-        image: URL.createObjectURL(file),
+        image: URL.createObjectURL(imageFile),
         filename: file.name
       };
 
@@ -59,13 +69,14 @@ function App() {
 
   const onDrop = async (acceptedFiles) => {
     if (acceptedFiles.length === 0) return;
-    await processImage(acceptedFiles[0]);
+    await processFile(acceptedFiles[0]);
   };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      'image/*': ['.jpeg', '.jpg', '.png']
+      'image/*': ['.jpeg', '.jpg', '.png'],
+      'application/pdf': ['.pdf']
     },
     multiple: false
   });
@@ -180,7 +191,7 @@ function App() {
                   <p className="text-red-400">{error}</p>
                 </div>
                 <button
-                  onClick={() => processImage(currentResult?.image)}
+                  onClick={() => processFile(currentResult?.image)}
                   className="flex items-center space-x-1 px-3 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 transition-colors"
                 >
                   <ArrowPathIcon className="h-4 w-4" />
